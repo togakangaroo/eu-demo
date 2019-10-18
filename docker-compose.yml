@@ -1,0 +1,22 @@
+version: '3.6'
+services:
+  server:
+    build:
+      context: ./server/
+    ports:
+      - '8765:8765'
+    volumes:
+      - './server:/app'
+    working_dir: /app
+    environment:
+      LOG_LEVEL: DEBUG
+    command: main.py
+  # client:
+  #   build:
+  #     context: ./client/
+  #   depends_on:
+  #     - server
+  #   volumes:
+  #     - './client:/app'
+  #   working_dir: /app
+  #   command: start
