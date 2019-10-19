@@ -10,29 +10,39 @@ if os.getenv("LOG_LEVEL"):
 
 
 connections = {}
+messages = {}
 
-
-async def send_message(from_username, to, message, _type="message", **additional_fields):
+async def send(type_, to, **fields):
     websockets = connections.get(to, None)
     if not websockets:
         return
-    to_send = {"from": from_username, "message": message, "type": _type, **additional_fields}
-    logging.debug(f"{to} << {to_send}")
-    msg = json.dumps(to_send)
-    await asyncio.wait([ws.send(msg) for ws in websockets])
+    msg = {"type": type_, "to": to, **{k.rstrip("_"): v for k,v in fields.items()}}
+    logging.debug(f"{to} << {msg}")
+    to_send = json.dumps(msg)
+    await asyncio.wait([ws.send(to_send) for ws in websockets])
+    return msg
 
+async def send_message(from_, to, message, **additional_fields):
+    msg = await send("message", to, from_=from_, message=message, **additional_fields)
+    messages[to] = [*messages.get(to, []), msg][:10]
 
-async def broadcast_message(from_username, message, _type="message", **additional_fields):
-    logging.debug(f"broadcast {from_username=} {message=}, connections: {[(k, len(s)) for k, s in connections.items()]}")
+async def broadcast(type_, **fields):
+    logging.debug(f"broadcast type={type_} | {fields=} | connections: {[(k, len(s)) for k, s in connections.items()]}")
     await asyncio.wait([
-        send_message(from_username, to, message, _type=_type, **additional_fields)
+        send(type_, to, **fields)
         for to in connections.keys()
-        if to != from_username
     ])
+
+async def broadcast_message(from_, message, **additional_fields):
+    await broadcast("message", from_=from_, message=message, **additional_fields)
 
 
 async def broadcast_userlist():
-    await broadcast_message(None, None, _type="user list updated", userList=list(connections.keys()))
+    await broadcast("user list updated", userList=list(connections.keys()))
+
+async def send_message_sync(to):
+    msgs = messages.get(to, [])
+    await send("message sync", to, messages=msgs)
 
 
 async def chat(websocket, path):
@@ -46,15 +56,16 @@ async def chat(websocket, path):
         else:
             connections[username] = set([websocket])
             await broadcast_userlist()
+        await send_message_sync(username)
 
         while True:
             received_msg = await websocket.recv()
             r = json.loads(received_msg)
             logging.debug(f"{username} >> {r}")
             if "to" in r:
-                await send_message(username, r["to"], r.get("message", None))
+                await send_message(username, r["to"], r.get("message", ""))
             else:
-                await broadcast_message(username, r.get("message", None))
+                await broadcast_message(username, r.get("message", ""))
     except:
         logging.exception("An unforseen error!")
         raise
