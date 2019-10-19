@@ -11,12 +11,13 @@ services:
     environment:
       LOG_LEVEL: DEBUG
     command: main.py
-  # client:
-  #   build:
-  #     context: ./client/
-  #   depends_on:
-  #     - server
-  #   volumes:
-  #     - './client:/app'
-  #   working_dir: /app
-  #   command: start
+  client:
+    image: node:12-alpine
+    ports:
+      - '3008:3000'
+    depends_on:
+      - server
+    volumes:
+      - './client:/app'
+    working_dir: /app
+    command: npm start

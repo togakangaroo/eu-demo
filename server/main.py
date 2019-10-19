@@ -8,43 +8,63 @@ log_level = "DEBUG"
 if os.getenv("LOG_LEVEL"):
     logging.basicConfig(level=getattr(logging, os.getenv("LOG_LEVEL")))
 
-connected_users = {}
+
+connections = {}
 
 
-async def send_message(from_username, to, message):
-    ws = connected_users.get(to, None)
-    if not ws or not message:
+async def send_message(from_username, to, message, _type="message", **additional_fields):
+    websockets = connections.get(to, None)
+    if not websockets:
         return
-    to_send = {"from": from_user, "message": message}
+    to_send = {"from": from_username, "message": message, "type": _type, **additional_fields}
     logging.debug(f"{to} << {to_send}")
-    ws.send(json.dumps(to_send))
+    msg = json.dumps(to_send)
+    await asyncio.wait([ws.send(msg) for ws in websockets])
 
 
-async def broadcast_message(from_username, message):
+async def broadcast_message(from_username, message, _type="message", **additional_fields):
+    logging.debug(f"broadcast {from_username=} {message=}, connections: {[(k, len(s)) for k, s in connections.items()]}")
     await asyncio.wait([
-        send_message(from_username, to, message)
-        for to in connected_users.keys()
+        send_message(from_username, to, message, _type=_type, **additional_fields)
+        for to in connections.keys()
         if to != from_username
     ])
 
 
-async def chat(websocket, username):
+async def broadcast_userlist():
+    await broadcast_message(None, None, _type="user list updated", userList=list(connections.keys()))
+
+
+async def chat(websocket, path):
+    username = path.lstrip("/ws/")
     logging.debug(f"{username} connected")
 
     try:
-        connected_users[username] = websocket
+        # TODO - GM - is this thread safe? I *think* it is cause GIL, but should be checked
+        if username in connections:
+            connections[username].add(websocket)
+        else:
+            connections[username] = set([websocket])
+            await broadcast_userlist()
 
         while True:
-            r = json.loads(await websocket.recv())
+            received_msg = await websocket.recv()
+            r = json.loads(received_msg)
             logging.debug(f"{username} >> {r}")
-            to = r.get("to", None)
-            if to:
-                await send_message(username, to, r.get("message", None))
+            if "to" in r:
+                await send_message(username, r["to"], r.get("message", None))
             else:
                 await broadcast_message(username, r.get("message", None))
-
+    except:
+        logging.exception("An unforseen error!")
+        raise
     finally:
-        connected_users.pop(username, None)
+        connections[username].remove(websocket)
+        # TODO - GM - again, thread saftey?
+        if len(connections[username]) == 0:
+            connections.pop(username, None)
+            await broadcast_userlist()
+        logging.debug(f"{username} disconnected")
 
 start_server = websockets.serve(chat, "*", 8765)
 
