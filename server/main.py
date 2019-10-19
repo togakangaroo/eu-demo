@@ -10,7 +10,7 @@ if os.getenv("LOG_LEVEL"):
 
 
 connections = {}
-messages = {}
+messages_broadcast = []
 
 async def send(type_, to, **fields):
     websockets = connections.get(to, None)
@@ -23,8 +23,7 @@ async def send(type_, to, **fields):
     return msg
 
 async def send_message(from_, to, message, **additional_fields):
-    msg = await send("message", to, from_=from_, message=message, **additional_fields)
-    messages[to] = [*messages.get(to, []), msg][:10]
+    await send("message", to, from_=from_, message=message, **additional_fields)
 
 async def broadcast(type_, **fields):
     logging.debug(f"broadcast type={type_} | {fields=} | connections: {[(k, len(s)) for k, s in connections.items()]}")
@@ -34,15 +33,16 @@ async def broadcast(type_, **fields):
     ])
 
 async def broadcast_message(from_, message, **additional_fields):
+    global messages_broadcast
     await broadcast("message", from_=from_, message=message, **additional_fields)
+    messages_broadcast = [*messages_broadcast, {"from": from_, "message":message, "type": "message"}][:10]
 
 
 async def broadcast_userlist():
     await broadcast("user list updated", userList=list(connections.keys()))
 
 async def send_message_sync(to):
-    msgs = messages.get(to, [])
-    await send("message sync", to, messages=msgs)
+    await send("message sync", to, messages=messages_broadcast)
 
 
 async def chat(websocket, path):
