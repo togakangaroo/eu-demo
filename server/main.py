@@ -12,18 +12,19 @@ if os.getenv("LOG_LEVEL"):
 connections = {}
 messages_broadcast = []
 
-async def send(type_, to, **fields):
-    websockets = connections.get(to, None)
+async def send(type_, recipient, **fields):
+    # fields might contain a "to" field which is not necessarily the recipient of this ws send
+    websockets = connections.get(recipient, None)
     if not websockets:
         return
-    msg = {"type": type_, "to": to, **{k.rstrip("_"): v for k,v in fields.items()}}
-    logging.debug(f"{to} << {msg}")
+    msg = {"type": type_, "to": recipient, **{k.rstrip("_"): v for k,v in fields.items()}}
+    logging.debug(f"{recipient} << {msg}")
     to_send = json.dumps(msg)
     await asyncio.wait([ws.send(to_send) for ws in websockets])
     return msg
 
 async def send_message(from_, to, message, **additional_fields):
-    await send("message", to, from_=from_, message=message, **additional_fields)
+    return await send("message", to, from_=from_, message=message, **additional_fields)
 
 async def broadcast(type_, **fields):
     logging.debug(f"broadcast type={type_} | {fields=} | connections: {[(k, len(s)) for k, s in connections.items()]}")
@@ -64,8 +65,9 @@ async def chat(websocket, path):
             logging.debug(f"{username} >> {r}")
             message = r.get("message", "")
             to = r.get("to", None)
-            if to:
-                await send_message(username, to, message)
+            if to: # Direct message
+                dm = await send_message(username, to, message) #recipient
+                await send("message", username, **dm) #sender
             else:
                 await broadcast_message(username, message)
     except:

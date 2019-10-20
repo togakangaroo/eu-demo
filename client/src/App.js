@@ -52,6 +52,10 @@ const SendMessageForm = ({onSend, users}) => {
     const [to, setTo] = useState(``)
     const sendableMessage = message.trim()
     const otherUsers = users.filter(u => u !== me.username)
+    const send = () => {
+        onSend(sendableMessage, to)
+        setMessage(``) //TODO - GM - if the message never sends don't clear it
+    }
     return (
         <SemanticForm>
           <Labeled title="To">
@@ -63,7 +67,7 @@ const SendMessageForm = ({onSend, users}) => {
             </select>
           </Labeled>
           <input placeholder="Message" value={message} onChange={setVal(setMessage)} required />
-          <button onClick={() => onSend(sendableMessage, to)} disabled={!sendableMessage}>Send</button>
+          <button onClick={send} disabled={!sendableMessage}>Send</button>
         </SemanticForm>
     )
 }
@@ -106,7 +110,6 @@ const ChatStateManager = class extends React.Component {
 
         this.ws.addEventListener('message', ({data}) => {
             const ev = JSON.parse(data)
-            console.log(`recieved`, ev)
             if(`user list updated` === ev.type)
                 this.setState({users: ev.userList})
             if(`message sync` === ev.type)
