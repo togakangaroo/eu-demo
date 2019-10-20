@@ -57,53 +57,77 @@ const SendMessageForm = ({onSend}) => {
     )
 }
 
-const Chat = ({username}) => {
-    const [users, setUsers] = useState(null)
-    const [messages, setMessages] = useState([])
-    const [send, setSend] = useState(null)
-    useEffect(() => {
+const ChatStateManager = class extends React.Component {
+    // Requires a single username prop
+    state = {
+        messages: [],
+        users: null,
+        send: null,
+    }
+    render = () => (
+        <CurrentUser.Provider value={{username: this.props.username}}>
+          <Chat {...this.state} />
+        </CurrentUser.Provider>
+    )
+    componentDidMount = () => this.componentDidUpdate()
+    componentDidUpdate = (prevProps={}) => {
+        if(this.props.username === prevProps.username)
+            return
+        if(this.ws) {
+            this.ws.close()
+            this.ws({send: null})
+        }
         // TODO - GM - I've only used ws via signalr, there's probably some nice library that wraps reconnect logic and stuff I should investigate
-        const socket = new WebSocket(`ws:localhost:8765/ws/${username}`)
-        setSend(() => (message, to) => socket.send(JSON.stringify({message, to})))
+        this.ws = new WebSocket(`ws:localhost:8765/ws/${this.props.username}`)
+        this.ws.addEventListener(`open`, () => {
+            const send = (message, to) => this.ws && this.ws.send(JSON.stringify({message, to}))
+            this.setState({send})
+        })
 
-        socket.addEventListener('message', ({data}) => {
+        this.ws.addEventListener('message', ({data}) => {
             const ev = JSON.parse(data)
             console.log(`recieved`, ev)
             if(`user list updated` === ev.type)
-                setUsers(ev.userList)
+                this.setState({users: ev.userList})
             if(`message sync` === ev.type)
-                setMessages(ev.messages)
+                this.setState({messages: ev.messages})
             if(`message` === ev.type)
-                setMessages([...messages, ev])
+                this.setState(({messages}) => ({messages: [...messages, ev]}))
         })
-        return () => {
-            socket.close()
-            setSend(null)
-        }
-        //we really want this to rerun only when the username changes so disable checking for any other dependencies
-    }, [username]) //eslint-disable-line react-hooks/exhaustive-deps
+    }
+    componentWillUnmount = () => {
+        this.ws && this.ws.close()
+        this.ws = null
+    }
+}
 
+const UsersList = ({users}) => (
+    <ul>
+      {users.map(u => (
+          <li key={u}>
+            <Username username={u} />
+          </li>
+      ))}
+    </ul>
+)
+
+const Chat = ({messages, users, send}) => {
+    const {username} = useContext(CurrentUser)
     return (
-        <CurrentUser.Provider value={{username}}>
-          <When value={users} render={() => (
-              <article>
-                <header>Logged in as: {username}</header>
-                <ul>
-                  {users.map(u => (
-                      <li key={u}>
-                        <Username username={u} />
-                      </li>
-                  ))}
-                </ul>
-                <When value={messages} render={() => (
-                    <ChatHistory messages={messages} />
-                )}/>
-                <When value={send} render={() => (
-                    <SendMessageForm onSend={send} />
-                )}/>
-              </article>
-          )} />
-        </CurrentUser.Provider>
+        <When value={users} render={() => (
+            <article>
+              <header>Logged in as: {username}</header>
+              <When value={users} render={() => (
+                  <UsersList users={users} />
+              )}/>
+              <When value={messages} render={() => (
+                  <ChatHistory messages={messages} />
+              )}/>
+              <When value={send} render={() => (
+                  <SendMessageForm onSend={send} />
+              )}/>
+            </article>
+        )} />
     )
 }
 
@@ -136,7 +160,7 @@ const NameEntry = () => {
 const App = () => {
     return (
         <Router>
-          <Chat path="/:username" />
+          <ChatStateManager path="/:username" />
           <NameEntry path="/" />
         </Router>
     )

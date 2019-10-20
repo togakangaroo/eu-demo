@@ -55,7 +55,7 @@ async def chat(websocket, path):
             connections[username].add(websocket)
         else:
             connections[username] = set([websocket])
-            await broadcast_userlist()
+        await broadcast_userlist()
         await send_message_sync(username)
 
         while True:
