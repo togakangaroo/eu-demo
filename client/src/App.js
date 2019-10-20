@@ -57,10 +57,19 @@ const SendMessageForm = ({onSend}) => {
     )
 }
 
+// This is a very rare case of something making more sense as a component then a
+// hook. The issue is that when implemented as a hook you only want to register the
+// websocket event listener once. This would be done in a `useEffect` closure.
+// However you don't want to re-run the event registration code whenver messages change
+// (which is frequently), so you would not add `messages` as a dependency. But! that means
+//  that due to how closures capture scope, `messages` within the effect callback
+//  will be the same instance as it was *when the effect first ran*. Rather than
+//  figuringout hacks around this, it actually makes sense to use a component since
+//  itgives us an additional onbject-instance-level scope (`this`) to work with.
 const ChatStateManager = class extends React.Component {
-    // Requires a single username prop
+    // Requires a single username prop - since propTypes is now its own library its silly to import it for one thing
     state = {
-        messages: [],
+        messages: null,
         users: null,
         send: null,
     }
