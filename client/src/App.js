@@ -46,13 +46,24 @@ const ChatHistory = ({messages}) => (
         </li>
     )))
 )
-const SendMessageForm = ({onSend}) => {
+const SendMessageForm = ({onSend, users}) => {
+    const me = useContext(CurrentUser)
     const [message, setMessage] = useState(``)
+    const [to, setTo] = useState(``)
     const sendableMessage = message.trim()
+    const otherUsers = users.filter(u => u !== me.username)
     return (
         <SemanticForm>
+          <Labeled title="To">
+            <select value={to} onChange={setVal(setTo)}>
+              <option value="">Everyone</option>
+              {otherUsers.map(u => (
+                  <option key={u}>{u}</option>
+              ))}
+            </select>
+          </Labeled>
           <input placeholder="Message" value={message} onChange={setVal(setMessage)} required />
-          <button onClick={() => onSend(sendableMessage)} disabled={!sendableMessage}>Send</button>
+          <button onClick={() => onSend(sendableMessage, to)} disabled={!sendableMessage}>Send</button>
         </SemanticForm>
     )
 }
@@ -132,8 +143,8 @@ const Chat = ({messages, users, send}) => {
               <When value={messages} render={() => (
                   <ChatHistory messages={messages} />
               )}/>
-              <When value={send} render={() => (
-                  <SendMessageForm onSend={send} />
+              <When value={send && users} render={() => (
+                  <SendMessageForm onSend={send} users={users} />
               )}/>
             </article>
         )} />

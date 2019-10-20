@@ -62,10 +62,12 @@ async def chat(websocket, path):
             received_msg = await websocket.recv()
             r = json.loads(received_msg)
             logging.debug(f"{username} >> {r}")
-            if "to" in r:
-                await send_message(username, r["to"], r.get("message", ""))
+            message = r.get("message", "")
+            to = r.get("to", None)
+            if to:
+                await send_message(username, to, message)
             else:
-                await broadcast_message(username, r.get("message", ""))
+                await broadcast_message(username, message)
     except:
         logging.exception("An unforseen error!")
         raise
