@@ -4,6 +4,7 @@
     "private": true,
     "dependencies": {
         "@reach/router": "^1.2.1",
+        "eslint": "^6.5.1",
         "http-proxy-middleware": "^0.20.0",
         "react": "^16.10.2",
         "react-dom": "^16.10.2",
