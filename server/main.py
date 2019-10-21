@@ -9,38 +9,56 @@ if os.getenv("LOG_LEVEL"):
     logging.basicConfig(level=getattr(logging, os.getenv("LOG_LEVEL")))
 
 
+# server state
 connections = {}
 messages_broadcast = []
 
+
 async def send(type_, recipient, **fields):
+    """
+    Core "send anything on the websocket to a connected user message" abstraction
+    """
     # fields might contain a "to" field which is not necessarily the recipient of this ws send
     websockets = connections.get(recipient, None)
     if not websockets:
         return
-    msg = {"type": type_, "to": recipient, **{k.rstrip("_"): v for k,v in fields.items()}}
+    msg = {"type": type_, "to": recipient, **{k.rstrip("_"): v for k, v in fields.items()}}
     logging.debug(f"{recipient} << {msg}")
     to_send = json.dumps(msg)
     await asyncio.wait([ws.send(to_send) for ws in websockets])
     return msg
 
+
 async def send_message(from_, to, message, **additional_fields):
+    """
+    Send private chat messages directly to an connected user
+    """
     return await send("message", to, from_=from_, message=message, **additional_fields)
 
+
 async def broadcast(type_, **fields):
+    """
+    Core "send anything on the websocket to everyone" abstraction
+    """
     logging.debug(f"broadcast type={type_} | {fields=} | connections: {[(k, len(s)) for k, s in connections.items()]}")
     await asyncio.wait([
         send(type_, to, **fields)
         for to in connections.keys()
     ])
 
+
 async def broadcast_message(from_, message, **additional_fields):
+    """
+    Broadcast chat messages to everyone connected. Use this function rather than your own to do this as it also records state.
+    """
     global messages_broadcast
     await broadcast("message", from_=from_, message=message, **additional_fields)
-    messages_broadcast = [*messages_broadcast, {"from": from_, "message":message, "type": "message"}][:10]
+    messages_broadcast = [*messages_broadcast, {"from": from_, "message": message, "type": "message"}][:10]
 
 
 async def broadcast_userlist():
     await broadcast("user list updated", userList=list(connections.keys()))
+
 
 async def send_message_sync(to):
     await send("message sync", to, messages=messages_broadcast)
@@ -65,9 +83,9 @@ async def chat(websocket, path):
             logging.debug(f"{username} >> {r}")
             message = r.get("message", "")
             to = r.get("to", None)
-            if to: # Direct message
-                dm = await send_message(username, to, message) #recipient
-                await send("message", username, **dm) #sender
+            if to:  # Direct message
+                dm = await send_message(username, to, message)  # recipient
+                await send("message", username, **dm)  # sender
             else:
                 await broadcast_message(username, message)
     except:
