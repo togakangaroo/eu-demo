@@ -37,15 +37,39 @@ const Username = ({username}) => {
     return React.createElement(me.username === username ? MyUsernameContainer : UsernameContainer, null, username)
 }
 
+const MessageContainer = styled.div`
+    display: contents;
+    ${UsernameContainer}:after {
+        content: ":";
+        margin-right: .7em;
+    }
+`
+const MessageText = styled.div``
+const ChatHistoryContainer = styled.section`
+    overflow-y: scroll;
+`
+const ChatHistoryList = styled.ul`
+    display: grid;
+    grid-template-columns: min-content 1fr;
+    grid-template-rows: min-content;
+    & > li {
+        display: contents;
+    }
+`
 const ChatHistory = ({messages}) => (
     //GM - there is no unique identifier form messages, the correct thing to do is to spread, but the react babel jsx transform does not support spreading children
-    React.createElement(`ul`, null, ...messages.map(m => (
-        <li>
-          <Username username={m.from} />:
-          {m.message}
-        </li>
-    )))
+    <ChatHistoryContainer>
+      {React.createElement(ChatHistoryList, null, ...messages.map(m => (
+          <li>
+            <MessageContainer>
+              <Username username={m.from} />
+              <MessageText>{m.message}</MessageText>
+            </MessageContainer>
+          </li>
+      )))}
+    </ChatHistoryContainer>
 )
+const SendMessageFormContainer = styled.section``
 const SendMessageForm = ({onSend, users}) => {
     const me = useContext(CurrentUser)
     const [message, setMessage] = useState(``)
@@ -57,19 +81,56 @@ const SendMessageForm = ({onSend, users}) => {
         setMessage(``) //TODO - GM - if the message never sends don't clear it
     }
     return (
-        <SemanticForm>
-          <Labeled title="To">
-            <select value={to} onChange={setVal(setTo)}>
-              <option value="">Everyone</option>
-              {otherUsers.map(u => (
-                  <option key={u}>{u}</option>
-              ))}
-            </select>
-          </Labeled>
-          <input placeholder="Message" value={message} onChange={setVal(setMessage)} required />
-          <button onClick={send} disabled={!sendableMessage}>Send</button>
-        </SemanticForm>
+        <SendMessageFormContainer>
+          <SemanticForm>
+            <Labeled label="To">
+              <select value={to} onChange={setVal(setTo)}>
+                <option value="">Everyone</option>
+                {otherUsers.map(u => (
+                    <option key={u}>{u}</option>
+                ))}
+              </select>
+            </Labeled>
+            <input placeholder="Message" value={message} onChange={setVal(setMessage)} required />
+            <button onClick={send} disabled={!sendableMessage}>Send</button>
+          </SemanticForm>
+        </SendMessageFormContainer>
     )
+}
+
+const createWebsocketManager = (getUsername, setState) => {
+    let ws
+    const initialize = () => {
+        if(ws) {
+            ws.close()
+            setState({send: null})
+        }
+        //TODO - GM - I've only used ws via signalr, there's probably some nice library that wraps reconnect logic and stuff I should investigate
+        //TODO - GM - this port number means we're not going through the backend proxy but through an open port in the server docker-compose. This is not what we want. See setupProxy.js for more
+        ws = new WebSocket(`ws://localhost:8765/ws/${getUsername()}`)
+        ws.addEventListener(`open`, () => {
+            const send = (message, to) => ws && ws.send(JSON.stringify({message, to}))
+            setState({send})
+        })
+
+        ws.addEventListener('message', ({data}) => {
+            const ev = JSON.parse(data)
+            if(`user list updated` === ev.type)
+                setState({users: ev.userList})
+            if(`message sync` === ev.type)
+                setState({messages: ev.messages})
+            if(`message` === ev.type)
+                setState(({messages}) => ({messages: [...messages, ev]}))
+        })
+    }
+    const dispose = () => {
+        if(!ws)
+            return
+        ws.close()
+        ws = null
+        setState({send: null})
+    }
+    return {initialize, dispose}
 }
 
 // This is a very rare case of something making more sense as a component then a
@@ -77,10 +138,12 @@ const SendMessageForm = ({onSend, users}) => {
 // websocket event listener once. This would be done in a `useEffect` closure.
 // However you don't want to re-run the event registration code whenver messages change
 // (which is frequently), so you would not add `messages` as a dependency. But! that means
-//  that due to how closures capture scope, `messages` within the effect callback
-//  will be the same instance as it was *when the effect first ran*. Rather than
-//  figuringout hacks around this, it actually makes sense to use a component since
-//  itgives us an additional onbject-instance-level scope (`this`) to work with.
+// that due to how closures capture scope, `messages` within the effect callback
+// will be the same instance as it was *when the effect first ran*. Rather than
+// figuringout hacks around this, it actually makes sense to use a component since
+// it gives us an additional onbject-instance-level scope (`this`) to work with.
+//
+// TODO - GM - explore other ways of achieving a similar effect by for example using a redux-style pattern
 const ChatStateManager = class extends React.Component {
     // Requires a single username prop - since propTypes is now its own library its silly to import it for one thing
     state = {
@@ -97,60 +160,65 @@ const ChatStateManager = class extends React.Component {
     componentDidUpdate = (prevProps={}) => {
         if(this.props.username === prevProps.username)
             return
-        if(this.ws) {
-            this.ws.close()
-            this.ws({send: null})
-        }
-        // TODO - GM - I've only used ws via signalr, there's probably some nice library that wraps reconnect logic and stuff I should investigate
-        this.ws = new WebSocket(`ws:localhost:8765/ws/${this.props.username}`)
-        this.ws.addEventListener(`open`, () => {
-            const send = (message, to) => this.ws && this.ws.send(JSON.stringify({message, to}))
-            this.setState({send})
-        })
-
-        this.ws.addEventListener('message', ({data}) => {
-            const ev = JSON.parse(data)
-            if(`user list updated` === ev.type)
-                this.setState({users: ev.userList})
-            if(`message sync` === ev.type)
-                this.setState({messages: ev.messages})
-            if(`message` === ev.type)
-                this.setState(({messages}) => ({messages: [...messages, ev]}))
-        })
+        this.wsManager.initialize()
     }
-    componentWillUnmount = () => {
-        this.ws && this.ws.close()
-        this.ws = null
-    }
+    componentWillUnmount = () => this.wsManager.dispose()
+    wsManager = createWebsocketManager(() => this.props.username, (...x) => this.setState(...x))
 }
 
-const UsersList = ({users}) => (
-    <ul>
-      {users.map(u => (
-          <li key={u}>
-            <Username username={u} />
-          </li>
-      ))}
-    </ul>
+const UserListContainer = styled.ul`
+    overflow-y: auto;
+`
+const UserList = ({users}) => (
+    <UserListContainer>
+      <ul>
+        {users.map(u => (
+            <li key={u}>
+              <Username username={u} />
+            </li>
+        ))}
+      </ul>
+    </UserListContainer>
 )
+
+const ChatContainer = styled.article`
+    height: 100vh;
+    padding: 10px;
+    box-sizing: border-box;
+    display: grid;
+    grid-gap: 10px;
+    grid-template-areas:
+        "header       header   "
+        "chat-history user-list"
+        "send-message user-list";
+    grid-template-columns: 1fr min-content;
+    grid-template-rows: min-content 1fr min-content;
+    ${UserListContainer} {
+       grid-area: user-list;
+    }
+    ${ChatHistoryContainer} {
+       grid-area: chat-history;
+    }
+    ${SendMessageFormContainer} {
+       grid-area: send-message;
+    }
+`
 
 const Chat = ({messages, users, send}) => {
     const {username} = useContext(CurrentUser)
     return (
-        <When value={users} render={() => (
-            <article>
-              <header>Logged in as: {username}</header>
-              <When value={users} render={() => (
-                  <UsersList users={users} />
-              )}/>
-              <When value={messages} render={() => (
-                  <ChatHistory messages={messages} />
-              )}/>
-              <When value={send && users} render={() => (
-                  <SendMessageForm onSend={send} users={users} />
-              )}/>
-            </article>
-        )} />
+        <ChatContainer>
+          <header>Logged in as: {username}</header>
+          <When value={users} render={() => (
+              <UserList users={users} />
+          )}/>
+          <When value={messages} render={() => (
+              <ChatHistory messages={messages} />
+          )}/>
+          <When value={send && users} render={() => (
+              <SendMessageForm onSend={send} users={users} />
+          )}/>
+        </ChatContainer>
     )
 }
 
