@@ -23,6 +23,8 @@ To start:
 
 Then [open your browser to localhost:3008](http://localhost:3008)
 
+Why is this on the `main` and not `master` branch? Because this is for an interview and I believe github search works only over `master` branches.
+
 * Problem Prompt:
 
 ** Let’s Continue the Conversation!
