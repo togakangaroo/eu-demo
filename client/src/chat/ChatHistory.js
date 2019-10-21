@@ -1,10 +1,10 @@
 import React from 'react'
 import styled from 'styled-components'
-import {MessageContainer, MessageText} from './Messages.js'
-import {Username} from '../ui/Username.js'
+import {MessageContainer, MessageText, MessageFrom} from './Messages.js'
 
 export const ChatHistoryContainer = styled.section`
     overflow-y: scroll;
+    background-color: #EEE;
 `
 const ChatHistoryList = styled.ul`
     display: grid;
@@ -20,7 +20,7 @@ export const ChatHistory = ({messages}) => (
       {React.createElement(ChatHistoryList, null, ...messages.map(m => (
           <li>
             <MessageContainer>
-              <Username username={m.from} />
+              <MessageFrom {...m} />
               <MessageText>{m.message}</MessageText>
             </MessageContainer>
           </li>
